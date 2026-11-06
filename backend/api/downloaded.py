@@ -1031,6 +1031,7 @@ class ExtractClipsRequest(BaseModel):
     max_duration: Optional[int] = None
     remove_silence: bool = False
     force_vertical: bool = False
+    vertical_fill: str = "zoom"
     user_query: Optional[str] = None
     target_platform: Optional[str] = None
     emoji_style: str = "moderate"
@@ -1074,6 +1075,7 @@ async def extract_clips(video_id: str, body: ExtractClipsRequest | None = None):
         force_retranscribe: bool (default false)
         remove_silence: bool (remove silent gaps & filler words, default false)
         force_vertical: bool (default false)
+        vertical_fill: "zoom" (crop in on the speaker, default) or "blur"
     """
     req = body or ExtractClipsRequest()
     # Mode is the discriminator — branches API-side validation. Default "ai"
@@ -1096,6 +1098,9 @@ async def extract_clips(video_id: str, body: ExtractClipsRequest | None = None):
     max_duration = req.max_duration
     remove_silence = bool(req.remove_silence)
     force_vertical = bool(req.force_vertical)
+    from backend.services.clip_options import VERTICAL_FILLS
+    if req.vertical_fill not in VERTICAL_FILLS:
+        raise HTTPException(status_code=400, detail=f"Invalid vertical_fill: {req.vertical_fill}")
     user_query = (req.user_query or "").strip() or None
     # Platform hint biases the AI hook-type ranker. Unknown values quietly
     # degrade to vanilla virality ranking — _build_platform_bias_block handles
@@ -1176,6 +1181,7 @@ async def extract_clips(video_id: str, body: ExtractClipsRequest | None = None):
         max_duration=max_duration,
         remove_silence=remove_silence,
         force_vertical=force_vertical,
+        vertical_fill=req.vertical_fill,
         user_query=user_query,
         target_platform=target_platform,
         emoji_style=emoji_style,

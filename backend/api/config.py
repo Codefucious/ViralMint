@@ -102,6 +102,23 @@ async def get_voices(provider: str):
     return {"provider": provider, "voices": voices}
 
 
+@router.get("/config/transcription_models")
+async def get_transcription_models():
+    """OpenRouter's transcription models, live, for the Settings dropdown.
+
+    Must stay declared before `/config/{key}`, which would otherwise claim the
+    path and answer 404.
+    """
+    from backend.core.exceptions import ExternalTranscriptionError
+    from backend.services.openrouter_transcription import list_transcription_models
+
+    try:
+        models, stale = await list_transcription_models()
+    except ExternalTranscriptionError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"models": models, "stale": stale}
+
+
 @router.get("/config/{key}")
 async def get_config(key: str):
     """Return config for a given key."""

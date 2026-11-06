@@ -443,6 +443,28 @@ async def _download_channel(job_id: str, url: str, user_id: str, max_videos: int
     }, user_id)
 
 
+def _download_progress_reporter(job_id: str, user_id: str):
+    """Build a `download_video` on_progress callback for a single-video job.
+
+    The transfer fills 10-65%: 10 is where it starts and 70 is where analysis
+    takes over. With no known total, the job shows the size alone rather than
+    an invented percentage.
+    """
+    from backend.core.ws_manager import ws_manager
+
+    async def report(fraction: float | None, downloaded: int) -> None:
+        mb = downloaded / 1024 / 1024
+        if fraction is None:
+            await ws_manager.send_progress(
+                job_id, 10, f"Downloading video... {mb:.0f} MB", user_id)
+        else:
+            await ws_manager.send_progress(
+                job_id, 10 + fraction * 55,
+                f"Downloading video... {fraction:.0%} ({mb:.0f} MB)", user_id)
+
+    return report
+
+
 async def _download_single_url(job_id: str, url: str, title: str, user_id: str):
     """Download a single video URL, save to DB, and analyze."""
     from backend.agents.job_helper import update_job_status, job_cancelled
@@ -450,7 +472,10 @@ async def _download_single_url(job_id: str, url: str, title: str, user_id: str):
 
     await ws_manager.send_progress(job_id, 10, "Downloading video...", user_id)
 
-    dv_id = (await _download_single_video_to_db(job_id, url, title, user_id))["id"]
+    dv_id = (await _download_single_video_to_db(
+        job_id, url, title, user_id,
+        on_progress=_download_progress_reporter(job_id, user_id),
+    ))["id"]
 
     # The transfer itself could not be interrupted, but the user's cancel still
     # stands: no success write, no job_complete, no notification, and above all
@@ -485,7 +510,8 @@ async def _download_single_url(job_id: str, url: str, title: str, user_id: str):
 
 
 async def _download_single_video_to_db(job_id: str, url: str, title: str, user_id: str,
-                                       options: dict | None = None) -> dict:
+                                       options: dict | None = None,
+                                       on_progress=None) -> dict:
     """Download one video, create DB records.
 
     Returns a delivery summary:
@@ -526,6 +552,7 @@ async def _download_single_video_to_db(job_id: str, url: str, title: str, user_i
             extract_audio=True,
             # None for every pre-existing caller → byte-identical download.
             options=options,
+            on_progress=on_progress,
         )
     except (DownloadStalledError, DownloadTimeoutError):
         # ABANDONED, not failed: the worker thread is still running and still
@@ -556,6 +583,7 @@ async def _download_single_video_to_db(job_id: str, url: str, title: str, user_i
             filename=video_id,
             extract_audio=True,
             options=options,
+            on_progress=on_progress,
         )
         # If this also fails, the exception propagates naturally
         url = corrected_url  # Use corrected URL for DB records

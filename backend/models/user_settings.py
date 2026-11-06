@@ -44,6 +44,7 @@ class UserSettings(Base, TimestampMixin):
     # ── Video generation ───────────────────────────────
     preferred_voice_id = Column(String(100), nullable=True)  # Provider-specific voice ID
     whisper_quality = Column(String(20), default="balanced")  # fast|balanced|accurate|best
+    transcription_model = Column(String(100), nullable=True)  # OpenRouter slug; empty = local Whisper
 
     # ── TTS Provider ───────────────────────────────────
     tts_provider = Column(String(20), default="edge_tts")  # edge_tts|openai_tts

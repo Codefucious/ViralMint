@@ -7,9 +7,11 @@ import KeyIcon from "@mui/icons-material/VpnKeyOutlined"
 import SmartToyIcon from "@mui/icons-material/SmartToyOutlined"
 import MovieFilterIcon from "@mui/icons-material/MovieFilterOutlined"
 import PhoneIphoneIcon from "@mui/icons-material/PhoneIphoneOutlined"
+import GraphicEqIcon from "@mui/icons-material/GraphicEqOutlined"
 import HealthDashboard from "../components/settings/HealthDashboard"
 import MotionGraphicsSection from "../components/settings/MotionGraphicsSection"
 import AIProviderSection from "../components/settings/AIProviderSection"
+import TranscriptionSection from "../components/settings/TranscriptionSection"
 import ServiceKeysSection from "../components/settings/ServiceKeysSection"
 import MessagingSection from "../components/settings/MessagingSection"
 import useSettings from "../hooks/useSettings"
@@ -109,6 +111,16 @@ export default function Settings() {
           accentColor="#0d9f6e"
         >
           <AIProviderSection settings={settings} updateSettings={updateSettings} />
+        </Section>
+
+        {/* Transcription engine: local Whisper or an OpenRouter model */}
+        <Section
+          icon={<GraphicEqIcon sx={{ fontSize: 20 }} />}
+          title="Transcription"
+          description="Turn speech into text with local Whisper, or a speech-to-text model on OpenRouter"
+          accentColor="#7c3aed"
+        >
+          <TranscriptionSection settings={settings} updateSettings={updateSettings} />
         </Section>
 
         {/* Service API Keys (BYOK) */}

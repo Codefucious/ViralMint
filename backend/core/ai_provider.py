@@ -271,6 +271,16 @@ def _resolve_user_provider_and_key(user_settings) -> tuple[Optional[AIProvider],
     return provider, api_key
 
 
+def resolve_openrouter_key(user_settings=None) -> str:
+    """The OpenRouter key for features that call OpenRouter directly, whichever
+    provider handles chat: the key saved in Settings when OpenRouter is the
+    selected provider, otherwise OPENROUTER_API_KEY from `.env`. Empty if neither."""
+    provider, key = _resolve_user_provider_and_key(user_settings)
+    if provider == AIProvider.OPENROUTER and key:
+        return key
+    return settings.OPENROUTER_API_KEY or ""
+
+
 def get_ai_client(user_settings=None, **_kwargs) -> AIClient:
     """
     Return a configured AI client.

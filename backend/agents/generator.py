@@ -700,7 +700,7 @@ class GeneratorAgent:
             # default — a caller that cannot name a progress bar still says
             # something rather than nothing.
             result = await whisper_service.transcribe(
-                voice_path, language=None, quality="fast")
+                voice_path, language=None, quality="fast", local_only=True)
             segments = result.get("segments", [])
             if script:
                 from backend.services.caption_service import align_script_to_segments

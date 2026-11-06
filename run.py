@@ -64,12 +64,35 @@ def check_imagemagick():
 """)
     sys.exit(1)
 
+def check_ffmpeg():
+    if shutil.which("ffmpeg"):
+        print("✅ FFmpeg found")
+        return
+    system = platform.system()
+    instructions = {
+        "Darwin":  "brew install ffmpeg",
+        "Linux":   "sudo apt install ffmpeg",
+        "Windows": "Download from https://ffmpeg.org/download.html and add it to PATH",
+    }
+    print(f"""
+❌ FFmpeg not found — required to merge downloads, extract audio and run most tools.
+   Install it:
+     {instructions.get(system, 'See https://ffmpeg.org/download.html')}
+   Then re-run: python run.py
+""")
+    sys.exit(1)
+
 def check_node():
     if not shutil.which("node"):
         print("❌ Node.js not found — required to build the frontend.")
         print("   Install from https://nodejs.org (v18+)")
         sys.exit(1)
     result = subprocess.run(["node", "--version"], capture_output=True, text=True)
+    if result.returncode != 0:
+        # Found on PATH but cannot start, e.g. a missing shared library.
+        print("❌ Node.js is installed but failed to run:")
+        print(f"   {result.stderr.strip()}")
+        sys.exit(1)
     print(f"✅ Node.js {result.stdout.strip()}")
 
 def build_frontend():
@@ -152,6 +175,7 @@ if __name__ == "__main__":
     check_env_file()
     ensure_storage_dirs()
     check_imagemagick()
+    check_ffmpeg()
     check_node()
 
     # Run DB migrations (create tables)

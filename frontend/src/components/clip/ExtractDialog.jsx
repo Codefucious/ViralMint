@@ -18,6 +18,7 @@ import RecordVoiceOverOutlinedIcon from "@mui/icons-material/RecordVoiceOverOutl
 import { formatTime } from "./clipFormat"
 import { CAPTION_STYLES } from "../tools/captionOptions"
 import { clipSettingsPayload } from "./useClipSettings"
+import VerticalFillToggle from "./VerticalFillToggle"
 import { autoCutEstimate } from "./autoClipCount"
 
 /* ── Auto-cut ──────────────────────────────────────────────────
@@ -420,11 +421,17 @@ export default function ExtractDialog({ open, onClose, video, onExtract, setting
               <SettingRow
                 icon={<CropPortraitOutlinedIcon />}
                 label="Force vertical (9:16)"
-                sublabel="Blur-fill landscape sources into portrait"
+                sublabel="Fit landscape sources into portrait"
                 control={<RowSwitch checked={settings.force_vertical} />}
                 onRowClick={() => set({ force_vertical: !settings.force_vertical })}
+                expanded
                 divider
-              />
+              >
+                <VerticalFillToggle
+                  value={settings.vertical_fill}
+                  onChange={(vertical_fill) => set({ vertical_fill })}
+                />
+              </SettingRow>
 
               <SettingRow
                 icon={<RecordVoiceOverOutlinedIcon />}

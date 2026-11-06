@@ -409,8 +409,14 @@ async def extract_clip(
     end: float,
     output_path: Path,
     vertical: bool = True,
+    vertical_fill: str = "blur",
 ) -> Path:
-    """Extract a segment from a video. Converts to 9:16 with blur-fill if source is landscape."""
+    """Extract a segment from a video, converting a landscape source to 9:16.
+
+    `vertical_fill="blur"` keeps the whole picture over a blurred copy of
+    itself. "zoom" crops in on the speaker, and uses blur when the clip has no
+    face to frame (see speaker_crop).
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     duration = end - start
 
@@ -430,7 +436,11 @@ async def extract_clip(
             logger.debug(f"Could not probe video dimensions: {e}")
 
         if vertical and is_landscape:
-            vf = (
+            zoom = None
+            if vertical_fill == "zoom":
+                from backend.services.speaker_crop import speaker_zoom_filter
+                zoom = speaker_zoom_filter(video_path, start, duration, w, h)
+            vf = zoom or (
                 "split[original][bg];"
                 "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
                 "crop=1080:1920,boxblur=20:5[blurred];"

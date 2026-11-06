@@ -18,6 +18,7 @@ import ShortcutsPopover from "../../ShortcutsPopover"
 import Timeline from "./Timeline"
 import InOutFrames from "./InOutFrames"
 import RangeRail from "./RangeRail"
+import VerticalFillToggle from "../VerticalFillToggle"
 import { MAX_RANGES, MIN_LEN_SEC } from "./useBenchRanges"
 import { parseRangeText } from "./parseRanges"
 import { formatTime } from "../clipFormat"
@@ -835,10 +836,14 @@ export default function SourceBench({
         )}
         {/* describeChild: the tooltip DESCRIBES the chip; its name stays the
             label (without it MUI made the tooltip text the accessible name). */}
-        <Tooltip describeChild title="Convert a landscape source to 9:16 with a blurred fill">
+        <Tooltip describeChild title="Convert a landscape source to 9:16">
           <ToggleChip label="Vertical 9:16" pressed={!!settings.force_vertical}
             onToggle={() => onSettings({ force_vertical: !settings.force_vertical })} />
         </Tooltip>
+        <VerticalFillToggle
+          value={settings.vertical_fill}
+          onChange={(vertical_fill) => onSettings({ vertical_fill })}
+        />
         <Tooltip describeChild title="Trim silent gaps and filler words INSIDE each cut — your in/out points don't move">
           <ToggleChip label="Trim silence" pressed={!!settings.remove_silence}
             onToggle={() => onSettings({ remove_silence: !settings.remove_silence })} />

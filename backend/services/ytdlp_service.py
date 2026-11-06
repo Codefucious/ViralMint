@@ -628,6 +628,13 @@ _STALL_POLL_S = 1.0
 # measured in minutes, so a coarser cadence loses nothing.
 _DISK_POLL_S = 10.0
 
+# How often a running download may report to its job. Each report is a
+# WebSocket send plus a DB write, so this stays well above the poll interval.
+_PROGRESS_REPORT_S = 3.0
+
+# A report that hangs (a locked DB) must not hold up the stall guard's loop.
+_PROGRESS_CALLBACK_TIMEOUT_S = 5.0
+
 # Wall-clock cap, named so it is visible and patchable in a test rather than
 # buried as a literal at the call site. Same 20 minutes as before.
 VIDEO_HARD_TIMEOUT_S = 1200
@@ -701,6 +708,7 @@ class _DownloadProgress:
             self._postprocessing = False
             self._started = not queued
             self._disk = None
+            self._fraction = None
 
     def mark_started(self) -> None:
         """A worker thread picked the attempt up — start the stall clock."""
@@ -713,6 +721,23 @@ class _DownloadProgress:
         """The most bytes seen in this attempt — for reporting, not detection."""
         with self._lock:
             return self._peak
+
+    @property
+    def fraction(self) -> float | None:
+        """Highest completed fraction seen (0-1), or None if no total is known."""
+        with self._lock:
+            return self._fraction
+
+    def note_fraction(self, fraction: float) -> None:
+        """Record how complete the download is, for reporting only.
+
+        Keeps the high-water mark: the count restarts at 0 for a DASH audio
+        stream or a fallback format, and a progress bar must not jump back.
+        Stall detection does not read this — see `note_bytes`.
+        """
+        with self._lock:
+            if self._fraction is None or fraction > self._fraction:
+                self._fraction = fraction
 
     def note_bytes(self, downloaded: int) -> None:
         """Record a byte count from a progress event.
@@ -821,6 +846,21 @@ def _make_postprocessor_hook(tracker: "_DownloadProgress"):
     return _hook
 
 
+def _download_fraction(d: dict) -> float | None:
+    """Completed fraction (0-1) from a yt-dlp progress event, None if unknown.
+
+    Fragment counts come first: for HLS, `total_bytes_estimate` is extrapolated
+    from the fragments so far and drifts, while the count is exact.
+    """
+    for done, total in (
+        (d.get("fragment_index"), d.get("fragment_count")),
+        (d.get("downloaded_bytes"), d.get("total_bytes") or d.get("total_bytes_estimate")),
+    ):
+        if isinstance(done, (int, float)) and isinstance(total, (int, float)) and total > 0:
+            return min(done / total, 1.0)
+    return None
+
+
 def _make_progress_hook(tracker: "_DownloadProgress"):
     """yt-dlp progress hook that feeds the stall tracker. Never raises."""
     def _hook(d):
@@ -829,6 +869,9 @@ def _make_progress_hook(tracker: "_DownloadProgress"):
             if d.get("status") == "downloading":
                 tracker.clear_postprocessing()
                 tracker.note_bytes(d.get("downloaded_bytes") or 0)
+                fraction = _download_fraction(d)
+                if fraction is not None:
+                    tracker.note_fraction(fraction)
             else:
                 # 'finished' / 'error' are still signs of life.
                 tracker.note_event()
@@ -846,12 +889,18 @@ async def _await_with_stall_guard(
     url: str,
     label: str = "Download",
     footprint=None,
+    on_progress=None,
 ):
     """Await a download, failing early if it stops moving bytes.
 
     `footprint`, when given, is a zero-arg callable returning the attempt's
     bytes on disk (see `_stem_footprint`), sampled every `_DISK_POLL_S`; any
     change counts as progress.
+
+    `on_progress`, when given, is an async `(fraction, bytes)` callable, called
+    at most every `_PROGRESS_REPORT_S` once bytes have arrived and only when
+    the values changed. `fraction` is None if the total is unknown. A failing
+    or hanging callback is ignored: reporting must never harm the download.
 
     Two independent bounds:
       * `stall_timeout` — no progress for this long (suspended while a
@@ -868,6 +917,8 @@ async def _await_with_stall_guard(
     task = asyncio.ensure_future(awaitable)
     deadline = _now() + hard_timeout
     next_disk_poll = 0.0
+    next_report = 0.0
+    last_reported = None
     try:
         while True:
             done, _ = await asyncio.wait({task}, timeout=_STALL_POLL_S)
@@ -895,6 +946,18 @@ async def _await_with_stall_guard(
                     tracker.note_disk(int(await asyncio.to_thread(footprint)))
                 except Exception:  # noqa: BLE001 — a probe must never fail the download
                     pass
+
+            if on_progress is not None and time.monotonic() >= next_report:
+                snapshot = (tracker.fraction, tracker.bytes_downloaded)
+                if snapshot[1] > 0 and snapshot != last_reported:
+                    last_reported = snapshot
+                    next_report = time.monotonic() + _PROGRESS_REPORT_S
+                    try:
+                        await asyncio.wait_for(
+                            on_progress(*snapshot), _PROGRESS_CALLBACK_TIMEOUT_S,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        logger.debug("Download progress report failed: %s", e)
 
             idle = tracker.idle_seconds()
             if idle is not None and idle >= stall_timeout:
@@ -925,6 +988,7 @@ async def download_video(
     filename: str = None,
     extract_audio: bool = True,
     options: dict | None = None,
+    on_progress=None,
 ) -> dict:
     """
     Download a video using yt-dlp.
@@ -946,6 +1010,9 @@ async def download_video(
     always the one requested (a cap falls through to the uncapped rungs rather
     than erroring). Surfacing it is what lets a UI say "you asked for 4K, this
     source only had 1080p" instead of implying the cap was honoured.
+
+    `on_progress`: optional async `(fraction, bytes)` reporter; see
+    `_await_with_stall_guard`.
     """
     if output_dir is None:
         output_dir = settings.VIDEOS_DIR
@@ -1341,6 +1408,7 @@ async def download_video(
         stall_timeout=settings.DOWNLOAD_STALL_TIMEOUT_S,
         url=url,
         footprint=_footprint,
+        on_progress=on_progress,
     )
 
 

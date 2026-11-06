@@ -682,6 +682,7 @@ async def extract_viral_clips(
     max_duration = opts.max_duration
     remove_silence = opts.remove_silence
     force_vertical = opts.force_vertical
+    vertical_fill = opts.vertical_fill
     user_query = opts.user_query
     target_platform = opts.target_platform
     emoji_style = opts.emoji_style
@@ -984,6 +985,7 @@ async def extract_viral_clips(
         user_id=user_id,
         remove_silence=remove_silence,
         force_vertical=force_vertical,
+        vertical_fill=vertical_fill,
         emoji_style=emoji_style,
     )
 
@@ -1267,7 +1269,6 @@ async def _transcribe_locked(video, user_settings, whisper_quality, force_retran
     from backend.services.whisper_service import whisper_service
 
     try:
-        await asyncio.to_thread(whisper_service.load, whisper_quality)
         # Live transcription progress (7→30% of the job): whisper streams a
         # fraction as the decode advances; bridge the worker-thread callback
         # onto the loop. Without this a 40-minute audio sat at a frozen 7% for
@@ -2056,13 +2057,15 @@ async def _process_clips_parallel(
     user_id: str = "local",
     remove_silence: bool = False,
     force_vertical: bool = False,
+    vertical_fill: str = "zoom",
     emoji_style: str = "moderate",
 ) -> list[dict]:
     """Process all clips in parallel: extract → [silence removal] → caption → thumbnail → metadata.
 
     `force_vertical` is accepted for signature parity with the options
-    contract; clips are always extracted vertical (blur-fill) in this build,
-    so it's a no-op here rather than a behavior toggle.
+    contract; clips are always extracted vertical in this build, so it's a
+    no-op here rather than a behavior toggle. `vertical_fill` picks how a
+    landscape source fills that frame.
     """
     from backend.services.ffmpeg_service import extract_clip, extract_thumbnail
 
@@ -2072,16 +2075,36 @@ async def _process_clips_parallel(
     if job_id:
         await ws_manager.send_progress(job_id, 35, f"Cutting {total} clips from source video...", user_id)
 
+    cut_count = 0
+
     async def _extract_one(i, window):
+        nonlocal cut_count
+        # Checked here, once a slot is free, because every clip is queued at
+        # the start. Without it a cancelled job kept encoding all of its clips,
+        # and any newer job waited behind them for the shared ffmpeg slots.
+        await _raise_if_cancelled(job_id)
         clip_path = settings.GENERATED_DIR / f"clip_{video.id[:8]}_{uuid4().hex[:6]}.mp4"
         await extract_clip(
             Path(video.video_path), window["start"], window["end"],
-            clip_path, vertical=True,
+            clip_path, vertical=True, vertical_fill=vertical_fill,
         )
+        cut_count += 1
+        if job_id:
+            await ws_manager.send_progress(
+                job_id, 35 + 10 * cut_count / total,
+                f"Cutting clips: {cut_count} of {total} done...", user_id,
+            )
         return clip_path
 
     extract_tasks = [_ffmpeg_limited(_extract_one(i, w)) for i, w in enumerate(clip_windows)]
     clip_paths = await asyncio.gather(*extract_tasks, return_exceptions=True)
+
+    from backend.core.exceptions import JobCancelledError
+    if any(isinstance(result, JobCancelledError) for result in clip_paths):
+        for result in clip_paths:
+            if isinstance(result, Path):
+                result.unlink(missing_ok=True)
+        raise JobCancelledError("Job was cancelled by the user")
 
     # Phase 1.5: Remove silence & filler words (if enabled). Per-clip, soft-
     # falls-back to the original clip on failure. When cleaned, the re-timed

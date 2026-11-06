@@ -127,6 +127,10 @@ class AIProviderError(ViralMintError):
 class AIKeyMissingError(AIProviderError):
     pass
 
+class ExternalTranscriptionError(AIProviderError):
+    """An external speech-to-text model couldn't produce a usable transcript.
+    The message is user-facing: it completes "using local Whisper instead: …"."""
+
 
 # ── Motion Graphics ───────────────────────────────────────────────────────────
 

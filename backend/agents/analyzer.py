@@ -589,20 +589,9 @@ class AnalyzerAgent:
                 await update_job_status(job_id, "failed", error_message="No audio/video file found")
                 return
 
-            # Check if model needs downloading first
-            from backend.services.whisper_service import whisper_service, WHISPER_QUALITY_MAP, WHISPER_MODEL_SIZES
-            model_name = WHISPER_QUALITY_MAP.get(whisper_quality, "small")
-            if not whisper_service.is_model_cached(whisper_quality):
-                size = WHISPER_MODEL_SIZES.get(model_name, "")
-                step = f"Downloading Whisper {model_name} model ({size}) — first time only, please wait..."
-                await update_job_status(job_id, "running", progress_pct=5, current_step=step)
-                await ws_manager.send_progress(job_id, 5, step, user_id)
-            else:
-                await ws_manager.send_progress(job_id, 10, "Transcribing with Whisper...", user_id)
-                await update_job_status(job_id, "running", progress_pct=10, current_step="Transcribing with Whisper...")
-
-            # Load model in thread (may download ~3GB on first use — must not block event loop)
-            await asyncio.to_thread(whisper_service.load, whisper_quality)
+            # No pre-load: `transcribe()` loads and announces any first-run
+            # download itself, and only if local Whisper is actually the engine.
+            from backend.services.whisper_service import whisper_service
             await ws_manager.send_progress(job_id, 15, "Transcribing audio...", user_id)
             await update_job_status(job_id, "running", progress_pct=15, current_step="Transcribing audio...")
             # Live transcription progress (15→38% of the job) — whisper streams

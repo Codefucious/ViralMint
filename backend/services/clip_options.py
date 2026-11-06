@@ -13,6 +13,10 @@ import it without pulling the heavy clip_extractor module (whisper/ffmpeg).
 from dataclasses import dataclass
 from typing import Optional
 
+# How a landscape source fills a vertical frame: "zoom" crops in on the speaker,
+# "blur" keeps the whole picture over a blurred copy of itself.
+VERTICAL_FILLS = ("zoom", "blur")
+
 
 @dataclass
 class ExtractOptions:
@@ -33,6 +37,7 @@ class ExtractOptions:
     max_duration: Optional[int] = None
     remove_silence: bool = False
     force_vertical: bool = False
+    vertical_fill: str = "zoom"
     user_query: Optional[str] = None
     target_platform: Optional[str] = None
     emoji_style: str = "moderate"

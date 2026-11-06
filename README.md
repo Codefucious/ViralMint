@@ -140,7 +140,7 @@ The expensive parts are free and local. You only pay for the AI you choose to pl
 | Feature | Powered by | Cost |
 |:--------|:-----------|:-----|
 | Video downloading from 1,800+ sites | yt-dlp | $0 |
-| Audio transcription | Local faster-whisper | $0 |
+| Audio transcription | Local faster-whisper (or, opt-in, an OpenRouter speech-to-text model on your key) | $0 |
 | Voiceover (400+ voices, 70+ languages) | Edge TTS | $0 |
 | Word-by-word animated captions | FFmpeg + ASS subtitles | $0 |
 | Background music library | Royalty-free local library | $0 |

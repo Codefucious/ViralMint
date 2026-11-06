@@ -152,6 +152,56 @@ def _toast_download_notice(user_id: str = "local"):
     return _notify
 
 
+async def _transcribe_external(audio_path, language, on_progress, user_id: str) -> dict | None:
+    """Use the OpenRouter model chosen in Settings, if there is one.
+
+    Returns None when local Whisper should do the work. That is the normal
+    answer when no model is selected. When one IS selected but can't be used,
+    the user is told why, because they asked for something else and the job
+    should still finish: a model with no timestamps, no key or no credits is
+    not a reason to lose a transcription local Whisper can do for free.
+    """
+    try:
+        from backend.services.render_post import load_user_settings
+        user_settings = await load_user_settings(user_id)
+    except Exception:
+        logger.warning("Couldn't read transcription settings; using local Whisper", exc_info=True)
+        return None
+
+    model = (getattr(user_settings, "transcription_model", None) or "").strip()
+    if not model:
+        return None
+
+    from backend.core.ai_provider import resolve_openrouter_key
+    api_key = resolve_openrouter_key(user_settings)
+    if api_key:
+        from backend.services.openrouter_transcription import transcribe_via_openrouter
+        from backend.services.video_utils import probe_duration
+        try:
+            duration = await asyncio.to_thread(probe_duration, Path(audio_path))
+            return await transcribe_via_openrouter(
+                audio_path, model=model, api_key=api_key, language=language,
+                duration=duration, on_progress=on_progress,
+            )
+        except Exception as e:
+            reason = str(e) or type(e).__name__
+    else:
+        reason = "no OpenRouter API key is set"
+
+    logger.warning("Transcription with %s unavailable, using local Whisper: %s", model, reason)
+    from backend.core.ws_manager import ws_manager
+    try:
+        await ws_manager.send_constraint_warning(
+            constraint="external_transcription_fallback",
+            severity="warning",
+            message=f"Transcribing with local Whisper instead of {model}: {reason}.",
+            user_id=user_id,
+        )
+    except Exception:
+        logger.debug("transcription fallback warning failed", exc_info=True)
+    return None
+
+
 class WhisperService:
     _model = None
     _loaded_quality = None
@@ -343,10 +393,16 @@ class WhisperService:
         on_progress=None,
         on_download=None,
         user_id: str = "local",
+        local_only: bool = False,
     ) -> dict:
         """
         Transcribe audio file. Returns:
         { "text": "...", "language": "en", "segments": [...] }
+
+        When the user has picked an OpenRouter model in Settings it does the
+        work and `quality` is unused. `local_only=True` keeps a call on local
+        Whisper, and `timing_only=True` implies it: aligning our own TTS output
+        isn't worth paying for or waiting on an upload.
 
         `quality` is explicit on purpose. It used to be implicit — transcribe()
         called load() with no argument, which meant two things went wrong at
@@ -379,6 +435,11 @@ class WhisperService:
         from backend.services.ffmpeg_service import has_audio_stream
         if not await has_audio_stream(Path(audio_path)):
             raise ValueError(f"No audio stream found in {audio_path}")
+
+        if not (local_only or timing_only):
+            external = await _transcribe_external(audio_path, language, on_progress, user_id)
+            if external is not None:
+                return external
 
         # NOT `self.load(quality)`: that is a synchronous call which, on a cold
         # cache, downloads 150 MB - 3 GB inline and froze the whole event loop

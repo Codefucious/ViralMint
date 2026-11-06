@@ -440,6 +440,7 @@ export default function ClipStudio() {
       // only made hand-picked clips the one place pacing couldn't be fixed.
       if (opts.remove_silence) payload.remove_silence = true
       if (opts.force_vertical) payload.force_vertical = true
+      if (opts.vertical_fill) payload.vertical_fill = opts.vertical_fill
       if (opts.emoji_style && opts.emoji_style !== "moderate") payload.emoji_style = opts.emoji_style
 
       if (isManual) {

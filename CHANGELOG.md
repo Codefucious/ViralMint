@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- **Vertical clips can zoom in on the speaker.** A new switch beside Force
+  vertical chooses between Zoom to speaker, now the default, and Blur
+  background. Zoom finds the speaker in each shot, glides after them as they
+  walk, and re-frames on camera cuts. Audience shots stay centred, and a clip
+  with no faces uses blur so nothing is lost. Anything at the sides of the
+  frame, like on-screen text, is cut off, so use blur when that matters.
+- **Transcribe with an OpenRouter model instead of local Whisper.** Settings →
+  Transcription lists OpenRouter's speech-to-text models live. Pick one and
+  every transcription uses it, with long audio sent in five-minute chunks.
+  Local Whisper stays the default. It also takes over, with a warning in chat,
+  if the chosen model can't return the word timings captions need or the
+  request fails. Your audio is uploaded to OpenRouter and billed to your key;
+  narration ViralMint generates itself is always timed locally.
 - **Smart Video is now a studio: see every scene and hear every line before
   you render.** A script becomes a project of scenes. Each one has a voice
   take you can play, a stock clip you can watch, and a length measured from

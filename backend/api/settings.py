@@ -2,6 +2,7 @@
 # Copyright (c) 2025-2026 ViralMint Contributors
 """REST /api/settings — user settings CRUD + credential testing + OAuth callbacks."""
 import logging
+import re
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
@@ -18,6 +19,9 @@ from backend.config import settings as app_settings
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# vendor/model, within the 100 characters the column holds.
+_OPENROUTER_SLUG = re.compile(r"(?=.{1,100}$)[\w.-]+/[\w.:-]+")
+
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
 
@@ -27,6 +31,10 @@ class SettingsResponse(BaseModel):
     ai_model: Optional[str] = None
     ai_base_url: Optional[str] = None  # OpenAI-compatible provider only; not a secret
     ai_api_key_set: bool = False  # masked — never returns the actual key
+
+    # Transcription: an OpenRouter model slug, or None for local Whisper
+    transcription_model: Optional[str] = None
+    openrouter_key_available: bool = False  # from Settings or .env; never the key
 
     # Service API keys (BYOK) — booleans only, never the plaintext key
     youtube_api_key_set: bool = False
@@ -62,6 +70,8 @@ class SettingsUpdate(BaseModel):
     ai_base_url: Optional[str] = None  # empty string clears
     ai_api_key: Optional[str] = None  # plaintext on input — encrypted before storage
 
+    transcription_model: Optional[str] = None  # empty string selects local Whisper
+
     # Service API keys (BYOK) — plaintext on input, encrypted before storage.
     # Send empty string to clear a stored key.
     youtube_api_key: Optional[str] = None
@@ -91,14 +101,19 @@ async def get_settings():
         )
         s = result.scalar_one_or_none()
 
+    from backend.core.ai_provider import resolve_openrouter_key
+    openrouter_key_available = bool(resolve_openrouter_key(s))
+
     if not s:
-        return SettingsResponse()
+        return SettingsResponse(openrouter_key_available=openrouter_key_available)
 
     return SettingsResponse(
         ai_provider=s.ai_provider or "openai",
         ai_model=s.ai_model,
         ai_base_url=s.ai_base_url,
         ai_api_key_set=bool(s.ai_api_key_encrypted),
+        transcription_model=s.transcription_model,
+        openrouter_key_available=openrouter_key_available,
         youtube_api_key_set=bool(s.youtube_api_key_encrypted),
         douyin_cookie_set=bool(s.douyin_cookie_encrypted),
         tiktok_cookie_set=bool(s.tiktok_cookie_encrypted),
@@ -140,6 +155,9 @@ async def update_settings(update: SettingsUpdate):
             base_url = normalize_base_url(update.ai_base_url)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+    transcription_model = (update.transcription_model or "").strip()
+    if transcription_model and not _OPENROUTER_SLUG.fullmatch(transcription_model):
+        raise HTTPException(status_code=400, detail=f"Invalid transcription model: {transcription_model}")
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -149,6 +167,9 @@ async def update_settings(update: SettingsUpdate):
         if not s:
             s = UserSettings(user_id="local")
             db.add(s)
+
+        if update.transcription_model is not None:
+            s.transcription_model = transcription_model or None
 
         # AI provider preference (BYOK)
         if update.ai_provider is not None:

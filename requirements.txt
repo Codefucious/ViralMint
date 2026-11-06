@@ -69,6 +69,10 @@ curl-cffi>=0.15
 
 # Transcription
 faster-whisper
+# faster-whisper 1.2.1 only asks for av>=11, but calls av.open(metadata_errors=...),
+# which av 19 removed: every transcription fails with a TypeError. Lift this cap
+# once a faster-whisper release stops passing that argument.
+av>=11,<19
 
 # Video generation
 # This used to be `moviepy==1.0.3`, which nothing imported — it was four

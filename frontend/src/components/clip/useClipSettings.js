@@ -30,6 +30,7 @@ export const CLIP_SETTINGS_DEFAULTS = {
   emoji_style: "moderate",
   remove_silence: false,
   force_vertical: false,
+  vertical_fill: "zoom",
   whisper_quality: "balanced",
   force_retranscribe: false,
 }
@@ -93,6 +94,7 @@ export function clipSettingsPayload(settings, { hasTranscript = false } = {}) {
     emoji_style: settings.emoji_style,
     remove_silence: settings.remove_silence,
     force_vertical: settings.force_vertical,
+    vertical_fill: settings.vertical_fill,
     whisper_quality: settings.whisper_quality,
     force_retranscribe: !hasTranscript || !!settings.force_retranscribe,
   }
