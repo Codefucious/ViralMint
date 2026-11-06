@@ -99,6 +99,32 @@ def test_crop_never_leaves_the_frame(x):
         assert 0 <= s.x_from <= WIDTH - CROP and 0 <= s.x_to <= WIDTH - CROP
 
 
+def _gray(levels):
+    return np.array([np.full((36, 64), v, np.uint8) for v in levels])
+
+
+def test_a_sudden_change_is_a_cut_at_the_right_time():
+    assert sc.cuts_from_frames(_gray([50] * 50 + [120] * 50), 10.0) == [5.0]
+
+
+def test_steady_motion_is_not_a_cut():
+    """Large but not sudden: every frame changes by the same big amount."""
+    assert sc.cuts_from_frames(_gray([i * 10 for i in range(25)]), 10.0) == []
+
+
+def test_a_slow_dissolve_is_not_a_cut():
+    assert sc.cuts_from_frames(_gray([50 + i for i in range(100)]), 10.0) == []
+
+
+def test_a_cut_at_the_very_edge_of_a_clip_is_ignored():
+    assert sc.cuts_from_frames(_gray([50] * 2 + [120] * 98), 10.0) == []
+
+
+def test_flash_shorter_than_a_shot_counts_once():
+    frames = _gray([50] * 50 + [200] * 2 + [50] * 48)
+    assert sc.cuts_from_frames(frames, 10.0) == [5.0]
+
+
 def test_expression_covers_the_whole_clip_and_stays_flat():
     expression = sc._x_expression([
         CropSegment(0.0, 2.0, 100.0, 100.0),

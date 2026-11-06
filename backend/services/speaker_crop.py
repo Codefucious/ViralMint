@@ -5,7 +5,7 @@
 A centre crop isn't enough for real footage: the speaker stands in a different
 place in every shot, camera cuts move them instantly, and they walk. So:
 
-  1. ffmpeg finds the exact camera cuts in the clip.
+  1. Tiny grey frames from ffmpeg reveal the exact camera cuts in the clip.
   2. YuNet finds faces in low-res samples (2 per second).
   3. Each shot gets its own crop path. Inside a shot the crop holds still for
      small movements and glides after a speaker who walks. It only jumps on a
@@ -19,7 +19,6 @@ onnxruntime and numpy arrive with faster-whisper, so this adds no dependency.
 The model is YuNet (MIT, Shiqi Yu) from OpenCV Zoo: backend/assets, 232 KB.
 """
 import logging
-import re
 import subprocess
 import threading
 from dataclasses import dataclass
@@ -41,7 +40,10 @@ _MIN_SCORE = 0.6
 _NMS_IOU = 0.3
 
 _SAMPLE_FPS = 2.0
-_SCENE_THRESHOLD = 0.3
+_CUT_FRAME_WIDTH = 64
+_CUT_FRAME_HEIGHT = 36
+_CUT_MIN_CHANGE = 6.0      # mean grey-level change; real cuts measured 14-25
+_CUT_SPIKE_RATIO = 4.0     # how far above the surrounding frames a cut must be
 _MIN_SHOT_SECONDS = 0.5    # a "cut" closer than this is a flash, not a shot
 _CROWD_FACES = 3           # this many faces per sample: an audience shot
 _DEAD_ZONE = 0.12          # share of crop width the speaker may drift unfollowed
@@ -159,23 +161,46 @@ def _sample_faces(video: Path, start: float, duration: float, scale: float) -> l
     return samples
 
 
-def _find_cuts(video: Path, start: float, duration: float) -> list[float]:
-    """Camera cut times in seconds from the start of the clip."""
-    result = run_ffmpeg(
-        ["-ss", str(start), "-i", str(video), "-t", str(duration), "-an",
-         "-vf", f"scale=320:-2,select='gt(scene,{_SCENE_THRESHOLD})',metadata=print:file=-",
-         # Passthrough, or the null muxer re-creates every frame `select`
-         # dropped to hold a constant rate, which took 10x as long.
-         "-vsync", "passthrough", "-f", "null", "-"],
-        timeout=_DETECT_TIMEOUT_S,
-    )
+def cuts_from_frames(frames: np.ndarray, duration: float) -> list[float]:
+    """Cut times from a (count, height, width) stack of tiny grey frames.
+
+    A cut is a change that is both large and sudden: a one-frame spike well
+    above the frames around it. Fast motion is large but not sudden, so a
+    speaker waving a hand stays one shot. A slow dissolve has no spike and
+    isn't a cut, which suits the crop: it glides through instead of jumping.
+    """
+    if len(frames) < 2:
+        return []
+    change = np.abs(frames[1:].astype(np.int16) - frames[:-1]).mean(axis=(1, 2))
+    seconds_per_frame = duration / len(frames)
     cuts: list[float] = []
-    for match in re.finditer(r"pts_time:([\d.]+)", result.stdout or ""):
-        cut = float(match.group(1))
+    for index in np.nonzero(change > _CUT_MIN_CHANGE)[0]:
+        nearby = np.r_[change[max(0, index - 6):index], change[index + 1:index + 7]]
+        if nearby.size and change[index] <= _CUT_SPIKE_RATIO * np.median(nearby):
+            continue
+        cut = float((index + 1) * seconds_per_frame)
         if _MIN_SHOT_SECONDS <= cut <= duration - _MIN_SHOT_SECONDS:
             if not cuts or cut - cuts[-1] >= _MIN_SHOT_SECONDS:
                 cuts.append(cut)
     return cuts
+
+
+def _find_cuts(video: Path, start: float, duration: float) -> list[float]:
+    """Camera cut times in seconds from the start of the clip.
+
+    Measured here rather than with ffmpeg's `scene` score, whose timestamps
+    came back past the end of the clip, so real cuts were thrown away.
+    """
+    result = run_ffmpeg(
+        ["-ss", str(start), "-i", str(video), "-t", str(duration), "-an",
+         "-vf", f"scale={_CUT_FRAME_WIDTH}:{_CUT_FRAME_HEIGHT},format=gray",
+         "-f", "rawvideo", "pipe:1"],
+        timeout=_DETECT_TIMEOUT_S, binary_stdout=True,
+    )
+    frame_bytes = _CUT_FRAME_WIDTH * _CUT_FRAME_HEIGHT
+    count = len(result.stdout) // frame_bytes
+    frames = np.frombuffer(result.stdout[:count * frame_bytes], np.uint8)
+    return cuts_from_frames(frames.reshape(count, _CUT_FRAME_HEIGHT, _CUT_FRAME_WIDTH), duration)
 
 
 # ── Planning the crop path ───────────────────────────────────────────────────
